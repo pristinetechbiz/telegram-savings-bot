@@ -1,0 +1,109 @@
+import sqlite3
+import random
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
+TOKEN = "8670768994:AAER5xn7BfwQ8abKOies8C9Ea2hNu604QuA"
+
+conn = sqlite3.connect("savings.db", check_same_thread=False)
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS members(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+username TEXT UNIQUE,
+paid INTEGER DEFAULT 0,
+payout_position INTEGER
+)
+""")
+conn.commit()
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Welcome to the Savings Circle Bot\n\n"
+        "/join - Join the circle\n"
+        "/status - View group status\n"
+        "/pay - Mark contribution\n"
+        "/next - Show next payout"
+    )
+
+
+async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    username = update.message.from_user.username
+
+    cursor.execute("SELECT COUNT(*) FROM members")
+    count = cursor.fetchone()[0]
+
+    position = count + 1
+
+    try:
+        cursor.execute(
+            "INSERT INTO members(username, payout_position) VALUES(?,?)",
+            (username, position)
+        )
+        conn.commit()
+
+        await update.message.reply_text(
+            f"@{username} joined the savings circle.\n"
+            f"Your payout position: {position}"
+        )
+
+    except:
+        await update.message.reply_text("You already joined.")
+
+
+async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    username = update.message.from_user.username
+
+    cursor.execute(
+        "UPDATE members SET paid = 1 WHERE username = ?",
+        (username,)
+    )
+    conn.commit()
+
+    await update.message.reply_text("Contribution recorded.")
+
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cursor.execute(
+        "SELECT username, paid, payout_position FROM members ORDER BY payout_position"
+    )
+    members = cursor.fetchall()
+
+    message = "Savings Circle Status\n\n"
+
+    for m in members:
+        paid = "Paid" if m[1] == 1 else "Pending"
+        message += f"{m[2]}. @{m[0]} - {paid}\n"
+
+    await update.message.reply_text(message)
+
+
+async def next_payout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cursor.execute(
+        "SELECT username FROM members WHERE paid=1 ORDER BY payout_position LIMIT 1"
+    )
+    winner = cursor.fetchone()
+
+    if winner:
+        await update.message.reply_text(
+            f"Next payout goes to @{winner[0]}"
+        )
+    else:
+        await update.message.reply_text(
+            "No member has completed contribution yet."
+        )
+
+
+app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("join", join))
+app.add_handler(CommandHandler("pay", pay))
+app.add_handler(CommandHandler("status", status))
+app.add_handler(CommandHandler("next", next_payout))
+
+print("Savings bot running...")
+
+app.run_polling()
